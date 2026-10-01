@@ -1,0 +1,180 @@
+@import "tailwindcss";
+
+@theme {
+  --color-dark-bg: #0a0a1a;
+  --color-dark-surface: #1a1a2e;
+  --color-dark-card: #16213e;
+  --color-gold: #ffd700;
+  --color-gold-dim: #b8960f;
+  --color-silver: #c0c0c0;
+  --color-magic-blue: #4a9eff;
+  --color-magic-red: #ff4a4a;
+  --font-sans: 'Noto Sans KR', system-ui, sans-serif;
+  --font-serif: 'Cinzel', serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  /* QHD+ 대응: viewport 기반 스케일링 */
+  font-size: clamp(16px, 1.1vw, 22px);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-dark-bg);
+  color: #e0e0e0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Ruby text alignment fix */
+ruby {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+ruby rt {
+  display: block;
+  text-align: center;
+  font-size: 0.65em;
+  line-height: 1.5;
+  order: -1;
+}
+
+ruby rp {
+  display: none;
+}
+
+/* Magic circle animation */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Card flip */
+.card-flip {
+  perspective: 1000px;
+}
+
+.card-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.card-flip-inner.flipped {
+  transform: rotateY(180deg);
+}
+
+.card-front, .card-back {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 12px;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-dark-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+.enemy-list-container {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 20px !important; /* 여기서 간격을 직접 조절하세요 */
+}
+
+/* ─── 전투 묘사 텍스트 이펙트 ─── */
+
+@keyframes np-pulse {
+  0%, 100% { text-shadow: 0 0 4px rgba(255,215,0,0.4); }
+  50% { text-shadow: 0 0 16px rgba(255,215,0,0.8), 0 0 32px rgba(255,215,0,0.4); }
+}
+
+@keyframes critical-flash {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+  100% { transform: scale(1); }
+}
+
+@keyframes fade-in-text {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.text-np-glow {
+  color: #ffd700;
+  font-weight: 700;
+  font-size: 1.1em;
+  animation: np-pulse 1.5s ease-in-out infinite;
+}
+
+.text-critical {
+  color: #ff4a4a;
+  font-weight: 700;
+  animation: critical-flash 0.3s ease-out;
+}
+
+.text-stealth-fade {
+  animation: fade-in-text 1s ease-in forwards;
+  opacity: 0;
+}
+
+.text-elimination {
+  color: #ff4a4a;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.text-servant-dialogue {
+  color: #a8d8ff;
+  font-style: italic;
+  font-weight: 500;
+  text-shadow: 0 0 8px rgba(168, 216, 255, 0.3);
+}
