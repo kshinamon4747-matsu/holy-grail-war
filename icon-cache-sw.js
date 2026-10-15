@@ -1,47 +1,119 @@
-// Bump this version when replacing an image at the same URL.
-const CACHE_PREFIX = "heavens-feel-icons-";
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
-const localIcons = new URL("servants/", self.registration.scope);
+const APP_CACHE_PREFIX = "heavens-feel-app-";
+const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
+const CACHE_NAME = `${APP_CACHE_PREFIX}v1`;
+const scopeURL = new URL("./", self.registration.scope);
+const localPortraits = new URL("servants/", scopeURL);
+const APP_SHELL_URLS = [
+  "./",
+  "manifest.webmanifest",
+  "favicon-32.png",
+  "apple-touch-icon.png",
+  "app-icon-192.png",
+  "app-icon-512.png",
+  "7999.png",
+  "Command_Seal.webp",
+  "icons.svg",
+].map(path => new URL(path, scopeURL).href);
 
-function isIconURL(value) {
+function isPortraitURL(value) {
   const url = new URL(value);
-  return (url.origin === localIcons.origin && url.pathname.startsWith(localIcons.pathname))
+  return (url.origin === localPortraits.origin && url.pathname.startsWith(localPortraits.pathname))
     || (url.origin === "https://static.atlasacademy.io" && /^\/JP\/Faces\//.test(url.pathname));
 }
 
-async function cachedIcon(request) {
-  // Storage can be unavailable (private browsing/quota). Never break image display.
-  let cache;
-  try {
-    cache = await caches.open(CACHE_NAME);
-    const saved = await cache.match(request);
-    if (saved) return saved;
-  } catch { /* Fall back to the network. */ }
+function isAppURL(value) {
+  const url = new URL(value);
+  return url.origin === scopeURL.origin && url.pathname.startsWith(scopeURL.pathname);
+}
+
+function canStore(response) {
+  return response.ok || response.type === "opaque";
+}
+
+async function openCache() {
+  try { return await caches.open(CACHE_NAME); }
+  catch { return null; }
+}
+
+async function cacheFirst(request) {
+  const cache = await openCache();
+  if (cache) {
+    try {
+      const saved = await cache.match(request);
+      if (saved) return saved;
+    } catch { /* Fall back to the network. */ }
+  }
   const response = await fetch(request);
-  if (cache && (response.ok || response.type === "opaque")) {
-    try { await cache.put(request, response.clone()); } catch { /* Quota/storage failure. */ }
+  if (cache && canStore(response)) {
+    try { await cache.put(request, response.clone()); } catch { /* Storage is optional. */ }
   }
   return response;
 }
 
-self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
+async function networkFirst(request) {
+  const cache = await openCache();
+  try {
+    const response = await fetch(request);
+    if (cache && canStore(response)) {
+      try { await cache.put(request, response.clone()); } catch { /* Storage is optional. */ }
+    }
+    return response;
+  } catch (error) {
+    if (cache) {
+      const saved = await cache.match(request) ?? await cache.match(scopeURL.href);
+      if (saved) return saved;
+    }
+    throw error;
+  }
+}
+
+async function saveURL(value) {
+  if (typeof value !== "string" || (!isAppURL(value) && !isPortraitURL(value))) return;
+  const request = new Request(value, {
+    mode: isAppURL(value) ? "same-origin" : "no-cors",
+    credentials: "same-origin",
+  });
+  await cacheFirst(request);
+}
+
+self.addEventListener("install", event => {
+  event.waitUntil((async () => {
+    await Promise.allSettled(APP_SHELL_URLS.map(saveURL));
+    await self.skipWaiting();
+  })());
+});
+
 self.addEventListener("activate", event => event.waitUntil((async () => {
   try {
     const names = await caches.keys();
-    await Promise.all(names.filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME).map(name => caches.delete(name)));
+    await Promise.all(names
+      .filter(name => (name.startsWith(APP_CACHE_PREFIX) && name !== CACHE_NAME) || name.startsWith(LEGACY_CACHE_PREFIX))
+      .map(name => caches.delete(name)));
   } catch { /* Storage is optional. */ }
   await self.clients.claim();
 })()));
 
 self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET" || event.request.destination !== "image" || !isIconURL(event.request.url)) return;
-  event.respondWith(cachedIcon(event.request));
+  const { request } = event;
+  if (request.method !== "GET") return;
+
+  if (request.destination === "document" && isAppURL(request.url)) {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  if (isPortraitURL(request.url)) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  if (isAppURL(request.url) && ["script", "style", "worker", "font", "manifest", "image"].includes(request.destination)) {
+    event.respondWith(cacheFirst(request));
+  }
 });
 
-// Images shown before first activation also need to be saved for the next visit.
+// Cache resources that loaded before the worker took control of the first visit.
 self.addEventListener("message", event => {
-  if (event.data?.type !== "CACHE_VISIBLE_ICONS" || !Array.isArray(event.data.urls)) return;
-  event.waitUntil(Promise.allSettled([...new Set(event.data.urls)]
-    .filter(url => typeof url === "string" && isIconURL(url))
-    .map(url => cachedIcon(new Request(url, { mode: "no-cors", credentials: "same-origin" })))));
+  if (event.data?.type !== "WARM_APP_CACHE" || !Array.isArray(event.data.urls)) return;
+  event.waitUntil(Promise.allSettled([...new Set(event.data.urls)].map(saveURL)));
 });
