@@ -1,0 +1,1 @@
+const r={Saber:"セイバー",Archer:"アーチャー",Lancer:"ランサー",Rider:"ライダー",Caster:"キャスター",Assassin:"アサシン",Berserker:"バーサーカー",Ruler:"ルーラー",Avenger:"アヴェンジャー",MoonCancer:"ムーンキャンサー",AlterEgo:"アルターエゴ",Foreigner:"フォーリナー",Pretender:"プリテンダー",Shielder:"シールダー",Savior:"セイヴァー"};function n(e){return e?r[e]??e:""}export{n as g};
