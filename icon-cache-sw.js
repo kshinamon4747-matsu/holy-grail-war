@@ -1,13 +1,14 @@
 const APP_CACHE_PREFIX = "heavens-feel-shell-";
 const LEGACY_APP_CACHE_PREFIX = "heavens-feel-app-";
 const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
-const APP_CACHE_NAME = "heavens-feel-shell-3e00e0f40d79";
+const APP_CACHE_NAME = "heavens-feel-shell-604c6b6cd344";
 const PORTRAIT_CACHE_NAME = "heavens-feel-portraits-v1";
 const SETTINGS_CACHE_NAME = "heavens-feel-settings-v1";
+const WORKER_PROTOCOL_VERSION = 2;
 const SETTINGS_URL = new URL("__offline-settings__", self.registration.scope).href;
 const scopeURL = new URL("./", self.registration.scope);
 const localPortraits = new URL("servants/", scopeURL);
-const BUILD_ASSETS = ["/assets/index-DV-8_WzO.js","/assets/index-B4fCluQb.css","/assets/GameApp-C51oxdzl.js","/assets/TRPGGame-ClOJamPK.js","/assets/servants-BeY4xekS.js"];
+const BUILD_ASSETS = ["/assets/index-Tr1Zy2Th.js","/assets/index-DC_16pVv.css","/assets/GameApp-l5k1H7Uc.js","/assets/TRPGGame-D1cO5S0f.js","/assets/servants-BeY4xekS.js"];
 const APP_SHELL_URLS = [
   "./",
   "manifest.webmanifest",
@@ -204,7 +205,26 @@ async function getPortraitStatus(urls) {
   const unique = [...new Set(urls.filter(value => typeof value === "string" && isPortraitURL(value)))].slice(0, 1000);
   if (!cache) return { cached: 0, total: unique.length };
   try {
+    const wanted = new Set(unique.map(url => new URL(url).href));
     const savedURLs = new Set((await cache.keys()).map(request => request.url));
+    const cacheNames = (await caches.keys()).filter(name =>
+      name !== PORTRAIT_CACHE_NAME && (
+        name.startsWith(APP_CACHE_PREFIX)
+        || name.startsWith(LEGACY_APP_CACHE_PREFIX)
+        || name.startsWith(LEGACY_CACHE_PREFIX)
+      ));
+    for (const name of cacheNames) {
+      const source = await caches.open(name);
+      for (const request of await source.keys()) {
+        if (!wanted.has(request.url) || savedURLs.has(request.url)) continue;
+        const response = await source.match(request);
+        if (!response) continue;
+        try {
+          await cache.put(request, response.clone());
+          savedURLs.add(request.url);
+        } catch { /* Continue counting other saved portraits. */ }
+      }
+    }
     return { cached: unique.filter(url => savedURLs.has(new URL(url).href)).length, total: unique.length };
   } catch {
     return { cached: 0, total: unique.length };
@@ -214,7 +234,8 @@ async function getPortraitStatus(urls) {
 async function migrateLegacyData() {
   let complete = true;
   try {
-    const names = (await caches.keys()).filter(name => name.startsWith(LEGACY_APP_CACHE_PREFIX));
+    const names = (await caches.keys()).filter(name =>
+      name.startsWith(LEGACY_APP_CACHE_PREFIX) || name.startsWith(LEGACY_CACHE_PREFIX));
     const portraitCache = await openCache(PORTRAIT_CACHE_NAME);
     const settingsCache = await openCache(SETTINGS_CACHE_NAME);
     if (!portraitCache || !settingsCache) return false;
@@ -314,12 +335,14 @@ self.addEventListener("install", event => {
 
 self.addEventListener("activate", event => event.waitUntil((async () => {
   const migrated = await migrateLegacyData();
-  try {
-    const names = await caches.keys();
-    await Promise.all(names
-      .filter(name => name.startsWith(LEGACY_CACHE_PREFIX))
-      .map(name => caches.delete(name)));
-  } catch { /* Storage is optional. */ }
+  if (migrated) {
+    try {
+      const names = await caches.keys();
+      await Promise.all(names
+        .filter(name => name.startsWith(LEGACY_CACHE_PREFIX))
+        .map(name => caches.delete(name)));
+    } catch { /* Storage is optional. */ }
+  }
   if (migrated && await isCurrentAppPrepared()) await cleanupOldAppCaches();
   await self.clients.claim();
 })()));
@@ -349,7 +372,7 @@ self.addEventListener("message", event => {
   if (!data || typeof data.type !== "string") return;
 
   if (data.type === "PING") {
-    port?.postMessage({ type: "ready" });
+    port?.postMessage({ type: "ready", protocol: WORKER_PROTOCOL_VERSION });
   } else if (data.type === "SET_DATA_SAVER") {
     event.waitUntil(writeDataSaverSetting(data.enabled)
       .then(() => port?.postMessage({ type: "saved" }))
