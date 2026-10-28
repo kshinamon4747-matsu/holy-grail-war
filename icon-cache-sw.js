@@ -1,13 +1,13 @@
 const APP_CACHE_PREFIX = "heavens-feel-shell-";
 const LEGACY_APP_CACHE_PREFIX = "heavens-feel-app-";
 const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
-const APP_CACHE_NAME = "heavens-feel-shell-d36b4115eea1";
+const APP_CACHE_NAME = "heavens-feel-shell-3e00e0f40d79";
 const PORTRAIT_CACHE_NAME = "heavens-feel-portraits-v1";
 const SETTINGS_CACHE_NAME = "heavens-feel-settings-v1";
 const SETTINGS_URL = new URL("__offline-settings__", self.registration.scope).href;
 const scopeURL = new URL("./", self.registration.scope);
 const localPortraits = new URL("servants/", scopeURL);
-const BUILD_ASSETS = ["/assets/index-DVgFIeR1.js","/assets/index-DxxDb774.css","/assets/CatalystModal-BJJ1BgRO.js","/assets/DesignatedSummonModal-Xoisch0N.js","/assets/GachaAnimation-NChDv_6G.js","/assets/GameApp-CLFpKmP3.js","/assets/TRPGGame-B2aS9UH8.js","/assets/WarDashboard-BUBzzA-v.js","/assets/classAffinity-dTqrIFQY.js","/assets/classLabels-3Hh8BDeT.js","/assets/servants-BeY4xekS.js","/assets/sessionRecords-B_qFBfB9.js"];
+const BUILD_ASSETS = ["/assets/index-DV-8_WzO.js","/assets/index-B4fCluQb.css","/assets/GameApp-C51oxdzl.js","/assets/TRPGGame-ClOJamPK.js","/assets/servants-BeY4xekS.js"];
 const APP_SHELL_URLS = [
   "./",
   "manifest.webmanifest",
@@ -20,6 +20,9 @@ const APP_SHELL_URLS = [
   "icons.svg",
 ].map(path => new URL(path, scopeURL).href);
 const cancelledDownloads = new Set();
+const portraitDownloads = new Map();
+const PORTRAIT_TIMEOUT_MS = 20000;
+const PORTRAIT_CONCURRENCY = 4;
 
 function isPortraitURL(value) {
   const url = new URL(value);
@@ -143,21 +146,57 @@ async function saveURL(value, forceNetwork = false) {
   } catch { return false; }
 }
 
+async function savePortraitURL(value, cache, task) {
+  const request = new Request(value, {
+    mode: isAppURL(value) ? "same-origin" : "no-cors",
+    credentials: "same-origin",
+  });
+  try { if (await cache.match(request)) return true; }
+  catch { /* Fetch below. */ }
+  const controller = new AbortController();
+  task.controllers.add(controller);
+  const timer = setTimeout(() => controller.abort(), PORTRAIT_TIMEOUT_MS);
+  try {
+    const response = await fetch(new Request(request, { signal: controller.signal }));
+    if (!canStore(response)) return false;
+    await cache.put(request, response.clone());
+    return true;
+  } catch { return false; }
+  finally {
+    clearTimeout(timer);
+    task.controllers.delete(controller);
+  }
+}
+
 async function cachePortraits(urls, requestId, port) {
-  const unique = [...new Set(urls.filter(value => typeof value === "string" && isPortraitURL(value)))].slice(0, 1000);
+  const unique = [...new Set(urls.filter(value => typeof value === "string" && isPortraitURL(value)))]
+    .slice(0, 1000)
+    .sort((a, b) => Number(isAppURL(b)) - Number(isAppURL(a)));
+  const cache = await openCache(PORTRAIT_CACHE_NAME);
+  if (!cache) {
+    port?.postMessage({ type: "done", saved: 0, failed: unique.length, total: unique.length });
+    return;
+  }
+  const task = { cancelled: cancelledDownloads.delete(requestId), controllers: new Set() };
+  portraitDownloads.set(requestId, task);
+  let nextIndex = 0;
+  let completed = 0;
   let saved = 0;
   let failed = 0;
-  for (let index = 0; index < unique.length; index++) {
-    if (cancelledDownloads.has(requestId)) {
-      port?.postMessage({ type: "cancelled", saved, failed, total: unique.length });
-      cancelledDownloads.delete(requestId);
-      return;
+  const saveNext = async () => {
+    while (!task.cancelled && nextIndex < unique.length) {
+      const index = nextIndex++;
+      const didSave = await savePortraitURL(unique[index], cache, task);
+      if (task.cancelled) return;
+      if (didSave) saved++;
+      else failed++;
+      completed++;
+      port?.postMessage({ type: "progress", completed, saved, failed, total: unique.length });
     }
-    if (await saveURL(unique[index])) saved++;
-    else failed++;
-    port?.postMessage({ type: "progress", completed: index + 1, saved, failed, total: unique.length });
-  }
-  port?.postMessage({ type: "done", saved, failed, total: unique.length });
+  };
+  await Promise.all(Array.from({ length: Math.min(PORTRAIT_CONCURRENCY, unique.length) }, saveNext));
+  portraitDownloads.delete(requestId);
+  port?.postMessage({ type: task.cancelled ? "cancelled" : "done", saved, failed, total: unique.length });
 }
 
 async function getPortraitStatus(urls) {
@@ -322,7 +361,13 @@ self.addEventListener("message", event => {
   } else if (data.type === "CACHE_PORTRAITS" && Array.isArray(data.urls)) {
     event.waitUntil(cachePortraits(data.urls, data.requestId, port));
   } else if (data.type === "CANCEL_CACHE_PORTRAITS") {
-    cancelledDownloads.add(data.requestId);
+    const task = portraitDownloads.get(data.requestId);
+    if (task) {
+      task.cancelled = true;
+      for (const controller of task.controllers) controller.abort();
+    } else {
+      cancelledDownloads.add(data.requestId);
+    }
   } else if (data.type === "WARM_APP_CACHE" && Array.isArray(data.urls)) {
     event.waitUntil(Promise.allSettled([...new Set(data.urls)].map(url => saveURL(url))));
   } else if (data.type === "APPLY_UPDATE") {
