@@ -1,13 +1,13 @@
 const APP_CACHE_PREFIX = "heavens-feel-shell-";
 const LEGACY_APP_CACHE_PREFIX = "heavens-feel-app-";
 const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
-const APP_CACHE_NAME = "heavens-feel-shell-f1f61cc16d9c";
+const APP_CACHE_NAME = "heavens-feel-shell-d36b4115eea1";
 const PORTRAIT_CACHE_NAME = "heavens-feel-portraits-v1";
 const SETTINGS_CACHE_NAME = "heavens-feel-settings-v1";
 const SETTINGS_URL = new URL("__offline-settings__", self.registration.scope).href;
 const scopeURL = new URL("./", self.registration.scope);
 const localPortraits = new URL("servants/", scopeURL);
-const BUILD_ASSETS = ["/assets/index-C9u1QH2c.js","/assets/index-Bm2z_w-v.css","/assets/CatalystModal-BAYG57mh.js","/assets/DesignatedSummonModal-CqupJHJl.js","/assets/GachaAnimation-DY70dv7D.js","/assets/GameApp-Cq8y7gRa.js","/assets/TRPGGame-bD9dzFxx.js","/assets/WarDashboard-DGpn7jdO.js","/assets/classAffinity-Ba24LHgk.js","/assets/classLabels-3Hh8BDeT.js","/assets/servants-BeY4xekS.js","/assets/sessionRecords-B_qFBfB9.js"];
+const BUILD_ASSETS = ["/assets/index-DVgFIeR1.js","/assets/index-DxxDb774.css","/assets/CatalystModal-BJJ1BgRO.js","/assets/DesignatedSummonModal-Xoisch0N.js","/assets/GachaAnimation-NChDv_6G.js","/assets/GameApp-CLFpKmP3.js","/assets/TRPGGame-B2aS9UH8.js","/assets/WarDashboard-BUBzzA-v.js","/assets/classAffinity-dTqrIFQY.js","/assets/classLabels-3Hh8BDeT.js","/assets/servants-BeY4xekS.js","/assets/sessionRecords-B_qFBfB9.js"];
 const APP_SHELL_URLS = [
   "./",
   "manifest.webmanifest",
@@ -93,7 +93,7 @@ async function readDataSaverSetting() {
 
 async function writeDataSaverSetting(enabled) {
   const cache = await openCache(SETTINGS_CACHE_NAME);
-  if (!cache) return;
+  if (!cache) throw new Error("Settings cache is unavailable");
   await cache.put(SETTINGS_URL, new Response(JSON.stringify({ enabled: Boolean(enabled) }), {
     headers: { "content-type": "application/json" },
   }));
@@ -164,11 +164,12 @@ async function getPortraitStatus(urls) {
   const cache = await openCache(PORTRAIT_CACHE_NAME);
   const unique = [...new Set(urls.filter(value => typeof value === "string" && isPortraitURL(value)))].slice(0, 1000);
   if (!cache) return { cached: 0, total: unique.length };
-  let cached = 0;
-  for (const url of unique) {
-    try { if (await cache.match(url)) cached++; } catch { /* Keep counting. */ }
+  try {
+    const savedURLs = new Set((await cache.keys()).map(request => request.url));
+    return { cached: unique.filter(url => savedURLs.has(new URL(url).href)).length, total: unique.length };
+  } catch {
+    return { cached: 0, total: unique.length };
   }
-  return { cached, total: unique.length };
 }
 
 async function migrateLegacyData() {
@@ -197,11 +198,11 @@ async function migrateLegacyData() {
 async function isCurrentAppPrepared() {
   const cache = await openCache(APP_CACHE_NAME);
   if (!cache) return false;
-  for (const url of [...APP_SHELL_URLS, ...BUILD_ASSETS]) {
-    try { if (!await cache.match(url)) return false; }
-    catch { return false; }
-  }
-  return true;
+  try {
+    const savedURLs = new Set((await cache.keys()).map(request => request.url));
+    return [...APP_SHELL_URLS, ...BUILD_ASSETS]
+      .every(url => savedURLs.has(new URL(url, scopeURL).href));
+  } catch { return false; }
 }
 
 async function cleanupOldAppCaches() {
@@ -211,12 +212,46 @@ async function cleanupOldAppCaches() {
   } catch { /* Old files can be cleaned on a later update. */ }
 }
 
+async function prepareUpdateURL(value, cache) {
+  const url = new URL(value, scopeURL);
+  const request = new Request(url.href, {
+    mode: "same-origin",
+    credentials: "same-origin",
+  });
+  const assetsPath = `${scopeURL.pathname.replace(/\/$/, "")}/assets/`;
+  if (url.origin === scopeURL.origin && url.pathname.startsWith(assetsPath)) {
+    try {
+      const saved = await matchAppCaches(request);
+      if (saved) {
+        await cache.put(request, saved.clone());
+        return true;
+      }
+    } catch { /* Download the changed asset below. */ }
+  }
+  try {
+    const response = await fetch(new Request(request, { cache: "reload" }));
+    if (!canStore(response)) return false;
+    await cache.put(request, response.clone());
+    return true;
+  } catch { return false; }
+}
+
 async function prepareUpdate(port) {
   const required = [...new Set([...APP_SHELL_URLS, ...BUILD_ASSETS])];
-  let failed = 0;
-  for (const url of required) {
-    if (!await saveURL(url, true)) failed++;
+  const cache = await openCache(APP_CACHE_NAME);
+  if (!cache) {
+    port?.postMessage({ type: "error", failed: required.length });
+    return;
   }
+  let nextIndex = 0;
+  let failed = 0;
+  const saveNext = async () => {
+    while (nextIndex < required.length) {
+      const index = nextIndex++;
+      if (!await prepareUpdateURL(required[index], cache)) failed++;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, required.length) }, saveNext));
   if (failed > 0) {
     port?.postMessage({ type: "error", failed });
     return;
@@ -277,7 +312,9 @@ self.addEventListener("message", event => {
   if (data.type === "PING") {
     port?.postMessage({ type: "ready" });
   } else if (data.type === "SET_DATA_SAVER") {
-    event.waitUntil(writeDataSaverSetting(data.enabled).then(() => port?.postMessage({ type: "saved" })));
+    event.waitUntil(writeDataSaverSetting(data.enabled)
+      .then(() => port?.postMessage({ type: "saved" }))
+      .catch(() => port?.postMessage({ type: "error" })));
   } else if (data.type === "GET_PORTRAIT_CACHE_STATUS" && Array.isArray(data.urls)) {
     event.waitUntil(getPortraitStatus(data.urls).then(status => port?.postMessage(status)));
   } else if (data.type === "GET_APP_UPDATE_STATUS") {
