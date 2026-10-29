@@ -1,14 +1,14 @@
 const APP_CACHE_PREFIX = "heavens-feel-shell-";
 const LEGACY_APP_CACHE_PREFIX = "heavens-feel-app-";
 const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
-const APP_CACHE_NAME = "heavens-feel-shell-604c6b6cd344";
+const APP_CACHE_NAME = "heavens-feel-shell-9a9a573909ad";
 const PORTRAIT_CACHE_NAME = "heavens-feel-portraits-v1";
 const SETTINGS_CACHE_NAME = "heavens-feel-settings-v1";
-const WORKER_PROTOCOL_VERSION = 2;
+const WORKER_PROTOCOL_VERSION = 3;
 const SETTINGS_URL = new URL("__offline-settings__", self.registration.scope).href;
 const scopeURL = new URL("./", self.registration.scope);
 const localPortraits = new URL("servants/", scopeURL);
-const BUILD_ASSETS = ["/assets/index-Tr1Zy2Th.js","/assets/index-DC_16pVv.css","/assets/GameApp-l5k1H7Uc.js","/assets/TRPGGame-D1cO5S0f.js","/assets/servants-BeY4xekS.js"];
+const BUILD_ASSETS = ["/assets/index-UZQ0PwxT.js","/assets/index-DC_16pVv.css","/assets/GameApp-DLUAbtA6.js","/assets/TRPGGame-D0LuOClc.js","/assets/servants-BeY4xekS.js"];
 const APP_SHELL_URLS = [
   "./",
   "manifest.webmanifest",
@@ -169,13 +169,13 @@ async function savePortraitURL(value, cache, task) {
   }
 }
 
-async function cachePortraits(urls, requestId, port) {
+async function cachePortraits(urls, requestId, reply) {
   const unique = [...new Set(urls.filter(value => typeof value === "string" && isPortraitURL(value)))]
     .slice(0, 1000)
     .sort((a, b) => Number(isAppURL(b)) - Number(isAppURL(a)));
   const cache = await openCache(PORTRAIT_CACHE_NAME);
   if (!cache) {
-    port?.postMessage({ type: "done", saved: 0, failed: unique.length, total: unique.length });
+    reply({ type: "done", saved: 0, failed: unique.length, total: unique.length });
     return;
   }
   const task = { cancelled: cancelledDownloads.delete(requestId), controllers: new Set() };
@@ -184,6 +184,7 @@ async function cachePortraits(urls, requestId, port) {
   let completed = 0;
   let saved = 0;
   let failed = 0;
+  reply({ type: "progress", completed, saved, failed, total: unique.length });
   const saveNext = async () => {
     while (!task.cancelled && nextIndex < unique.length) {
       const index = nextIndex++;
@@ -192,12 +193,12 @@ async function cachePortraits(urls, requestId, port) {
       if (didSave) saved++;
       else failed++;
       completed++;
-      port?.postMessage({ type: "progress", completed, saved, failed, total: unique.length });
+      reply({ type: "progress", completed, saved, failed, total: unique.length });
     }
   };
   await Promise.all(Array.from({ length: Math.min(PORTRAIT_CONCURRENCY, unique.length) }, saveNext));
   portraitDownloads.delete(requestId);
-  port?.postMessage({ type: task.cancelled ? "cancelled" : "done", saved, failed, total: unique.length });
+  reply({ type: task.cancelled ? "cancelled" : "done", saved, failed, total: unique.length });
 }
 
 async function getPortraitStatus(urls) {
@@ -382,7 +383,14 @@ self.addEventListener("message", event => {
   } else if (data.type === "GET_APP_UPDATE_STATUS") {
     event.waitUntil(isCurrentAppPrepared().then(prepared => port?.postMessage({ prepared })));
   } else if (data.type === "CACHE_PORTRAITS" && Array.isArray(data.urls)) {
-    event.waitUntil(cachePortraits(data.urls, data.requestId, port));
+    const reply = value => {
+      const message = { ...value, requestId: data.requestId };
+      try {
+        if (port) port.postMessage(message);
+        else event.source?.postMessage(message);
+      } catch { /* The page may have been closed. */ }
+    };
+    event.waitUntil(cachePortraits(data.urls, data.requestId, reply));
   } else if (data.type === "CANCEL_CACHE_PORTRAITS") {
     const task = portraitDownloads.get(data.requestId);
     if (task) {
