@@ -1,14 +1,14 @@
 const APP_CACHE_PREFIX = "heavens-feel-shell-";
 const LEGACY_APP_CACHE_PREFIX = "heavens-feel-app-";
 const LEGACY_CACHE_PREFIX = "heavens-feel-icons-";
-const APP_CACHE_NAME = "heavens-feel-shell-065eaffe6e8f";
+const APP_CACHE_NAME = "heavens-feel-shell-1e79fc87f068";
 const PORTRAIT_CACHE_NAME = "heavens-feel-portraits-v1";
 const SETTINGS_CACHE_NAME = "heavens-feel-settings-v1";
 const WORKER_PROTOCOL_VERSION = 4;
 const SETTINGS_URL = new URL("__offline-settings__", self.registration.scope).href;
 const scopeURL = new URL("./", self.registration.scope);
 const localPortraits = new URL("servants/", scopeURL);
-const BUILD_ASSETS = ["/assets/index-B8uWYGjl.js","/assets/index-DC_16pVv.css","/assets/GameApp-8xB5eCYY.js","/assets/TRPGGame-DyPn5Tf6.js","/assets/servants-BeY4xekS.js"];
+const BUILD_ASSETS = ["/assets/index-DQK87UYB.js","/assets/index-DC_16pVv.css","/assets/GameApp-BOv9lFKC.js","/assets/TRPGGame-Cx_303gU.js","/assets/servants-BeY4xekS.js"];
 const APP_SHELL_URLS = [
   "./",
   "manifest.webmanifest",
